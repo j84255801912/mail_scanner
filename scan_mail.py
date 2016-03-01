@@ -1,5 +1,7 @@
 #!/usr/bin/env python2.7
 # -*- coding : utf-8 -*-
+
+import argparse
 import os
 import email
 import imaplib
@@ -319,8 +321,26 @@ def test_vba():
 
 def main():
 
-    pass
+    parser = argparse.ArgumentParser(
+        description="Parse attached files in mails in a mailbox " +
+                    "and identify suspicious mails.\n" +
+                    "two modes\n" +
+                    "\t1. scan mode\n" +
+                    "\t2. monitor mode\n"
+    )
+    parser.add_argument('mode', type=str)
+    args = parser.parse_args()
+    mode = args.mode
 
+    smtp_server, imap_server, username, password = get_user_info()
+    imap = IMAPClient(imap_server, username, password)
+
+    if mode == 'scan':
+        imap.scan_all_mails()
+    elif mode == 'monitor':
+        imap.monitor_new_mails()
+    else:
+        print "mode need to be either 'scan' or 'monitor' ."
 
 if __name__ == '__main__':
 
