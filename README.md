@@ -37,6 +37,10 @@ Waiting for new mails ...
 
 [New mail] 哈哈哈ㄏ... scanning  ... safe
 ```
+**combo mode** : execute scan mode first and then monitor mode.
+```bsh
+$ ./scan_mail.py combo
+```
 
 ## TODO
 * check if virus mail detection works or not.

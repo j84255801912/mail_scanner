@@ -339,8 +339,11 @@ def main():
         imap.scan_all_mails()
     elif mode == 'monitor':
         imap.monitor_new_mails()
+    elif mode == 'combo':
+        imap.scan_all_mails()
+        imap.monitor_new_mails()
     else:
-        print "mode need to be either 'scan' or 'monitor' ."
+        print "mode need to be 'scan' or 'monitor' or 'combo'."
 
 if __name__ == '__main__':
 
