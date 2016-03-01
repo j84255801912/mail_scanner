@@ -31,6 +31,11 @@ Congrats! There is no suspicious mail in your mailbox!
 **monitor mode** : monitor mailbox 'INBOX' and scan all new-coming mails.
 ```bsh
 $ ./scan_mail.py monitor
+
+Waiting for new mails ...
+
+
+[New mail] 哈哈哈ㄏ... scanning  ... safe
 ```
 
 ## TODO
