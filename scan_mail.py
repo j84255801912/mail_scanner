@@ -144,10 +144,7 @@ class IMAPClient(object):
                         if result:
                             message += "; suspicious_files : " + ', '.join(suspicious_files)
                             message += "; Reply to the bad guy ..."
-                            print "SHIT"
-                            print mail.get_sender()
-                            sys.exit(1)
-                            reply(mail.get_sender()[0])
+                            reply(mail.get_sender()[1])
                             message += "DONE"
                         print message
             last_largest_mail_uid = now_largest_mail_uid
