@@ -187,7 +187,7 @@ class FileMessage(object):
         self._file_message = file_message
         self._mail_message = mail_message
 
-    def get_mail_message():
+    def get_mail_message(self):
 
         return self._mail_message
 
