@@ -148,7 +148,7 @@ class IMAPClient(object):
                             message += "DONE"
                         print message
             last_largest_mail_uid = now_largest_mail_uid
-            time.sleep(10)
+            time.sleep(3)
 
     def __del__(self):
 
