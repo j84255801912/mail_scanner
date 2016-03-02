@@ -83,31 +83,44 @@ class IMAPClient(object):
         self._imap.uid('STORE', uid, '-FLAGS', '\\SEEN')
 
     def check_mail(self, mail):
+        """
+            return : a list of suspicious files' name.
+        """
 
         files = mail.get_attached_files()
-
         suspicious_files = []
         for the_file in files:
             if the_file.is_suspicious():
                 suspicious_files.append(the_file.get_filename())
-        if len(suspicious_files) != 0:
-            message = "Mail (uid=%d) contains suspicious files\n" % mail.get_uid()
-            message += '=' * len(message) + '\n'
-            for filename in suspicious_files:
-                message += '\t%s' % filename
-        return len(suspicious_files) != 0
+
+        return suspicious_files
+
+    def _print_suspicious_mail_message(mail, suspicious_files):
+
+        pass
 
     def scan_all_mails(self):
 
+        print "Scanning mailbox \"%s\"" % self._mailbox
         contains_suspicious_mail = False
         for uid in self.search_mail_uids('ALL'):
             mail = self.peek_mail(uid)
-            mail_is_suspicious = self.check_mail(mail)
-            contains_suspicious_mail |= mail_is_suspicious
+            suspicious_files = self.check_mail(mail)
+            if len(suspicious_files) != 0:
+                message = "[Suspicious Mail Found] "
+                message += "uid=%d; " % uid
+                message += "subject=\"%s\"; " % mail.get_subject()
+                message += "suspicious_files=\"%s\"" % ', '.join(suspicious_files)
+                print message
+                contains_suspicious_mail = True
         if not contains_suspicious_mail:
             print "\nCongrats! There is no suspicious mail in your mailbox!\n"
 
     def monitor_new_mails(self, timeout=3600):
+        """
+            Wait for new mails arrival, and check them.
+            Default timeout is 3600 seconds.
+        """
 
         last_mail_uids = self.search_mail_uids('ALL')
         last_largest_mail_uid = 0 if len(last_mail_uids) == 0 else last_mail_uids[-1]
@@ -121,11 +134,22 @@ class IMAPClient(object):
                 for uid in now_mail_uids:
                     if uid > last_largest_mail_uid:
                         mail = self.peek_mail(uid)
-                        print "[New mail] " + mail.get_subject() + "... scanning",
-                        result = self.check_mail(mail)
-                        print " ... " + ("suspicious" if result else "safe")
+                        message = "[New mail] "
+                        message += "subject : " + "\"%s\"; " % mail.get_subject()
+                        message += "from : \"%s\"; " % mail.get_sender()[1]
+                        message += "result : "
+                        suspicious_files = self.check_mail(mail)
+                        result = len(suspicious_files) != 0
+                        message += "SUSPICIOUS" if result else "SAFE"
                         if result:
-                            reply(mail.get_sender[1])
+                            message += "; suspicious_files : " + ', '.join(suspicious_files)
+                            message += "; Reply to the bad guy ..."
+                            print "SHIT"
+                            print mail.get_sender()
+                            sys.exit(1)
+                            reply(mail.get_sender()[0])
+                            message += "DONE"
+                        print message
             last_largest_mail_uid = now_largest_mail_uid
             time.sleep(10)
 
@@ -172,7 +196,7 @@ class Email(object):
         files = []
         for part in self._message.walk():
             if is_ole_file(part):
-                files.append(FileMessage(part, self._message))
+                files.append(FileMessage(part, self))
         return files
 
 
