@@ -48,7 +48,7 @@ class WrappedIMAP(object):
 
     def list_mail_box(self):
 
-        self._imap.list()
+        self._imap.list_folders()
 
     def _refresh_mailbox(self):
         """
@@ -72,6 +72,16 @@ class WrappedIMAP(object):
         raw_mail = result[uid]['BODY[]']
         mail = Email(uid, raw_mail)
         return mail
+
+    def peek_mails(self, uids):
+
+        # peek doesnt' add the flag \\SEEN
+        result = self._imap.fetch(uids, ['BODY.PEEK[]'])
+        mails = [Email(message_id,
+                       data['BODY[]']
+                )  for message_id, data in result.iteritems()
+        ]
+        return mails
 
     def fetch_mail(self, uid):
 
@@ -104,18 +114,20 @@ class WrappedIMAP(object):
 
     def scan_all_mails(self):
 
-        print "Scanning mailbox \"%s\"" % self._mailbox
+        print "\nScanning mailbox \"%s\" ...\n" % self._mailbox
         contains_suspicious_mail = False
-        for uid in self.search_mail_uids('ALL'):
-            mail = self.peek_mail(uid)
+        mail_uids = self.search_mail_uids('ALL')
+        mails = self.peek_mails(mail_uids)
+        for mail in mails:
             suspicious_files = self.check_mail(mail)
             if len(suspicious_files) != 0:
                 message = "[Suspicious Mail Found] "
-                message += "uid=%d; " % uid
+                message += "uid=%d; " % mail.get_uid()
                 message += "subject=\"%s\"; " % mail.get_subject()
                 message += "suspicious_files=\"%s\"" % ', '.join(suspicious_files)
                 print message
                 contains_suspicious_mail = True
+        print "\nDONE\n"
         if not contains_suspicious_mail:
             print "\nCongrats! There is no suspicious mail in your mailbox!\n"
 
@@ -130,27 +142,35 @@ class WrappedIMAP(object):
         start_time = time.time()
         print "\nWaiting for new mails ...\n"
         while time.time() - start_time < timeout:
-            # fetch new mails
-            now_mail_uids = self.search_mail_uids('ALL')
-            now_largest_mail_uid = 0 if len(now_mail_uids) == 0 else now_mail_uids[-1]
-            if now_largest_mail_uid > last_largest_mail_uid:
-                for uid in now_mail_uids:
-                    if uid > last_largest_mail_uid:
-                        mail = self.peek_mail(uid)
-                        message = "[New mail] "
-                        message += "subject : " + "\"%s\"; " % mail.get_subject()
-                        message += "from : \"%s\"; " % mail.get_sender()[1]
-                        message += "result : "
-                        suspicious_files = self.check_mail(mail)
-                        result = len(suspicious_files) != 0
-                        message += "SUSPICIOUS" if result else "SAFE"
-                        if result:
-                            message += "; suspicious_files : " + ', '.join(suspicious_files)
-                            message += "; Reply to the bad guy ..."
-                            reply(mail.get_sender()[1])
-                            message += "DONE"
-                        print message
-            last_largest_mail_uid = now_largest_mail_uid
+            # fetch new mails with bigger uid than the last_biggest one
+            new_mail_uids = self.search_mail_uids(
+                ['UID', '%d:*' % (last_largest_mail_uid + 1)]
+            )
+            # if there is no new mail, {last_largest_mail_uid} will be included
+            # in new_mail_uids, due to the fact that %d:* means the range from
+            # {%d+1} to {last_llargest_mail_uid}.
+            try:
+                new_mail_uids.remove(last_largest_mail_uid)
+            except ValueError:
+                pass
+            new_mails = self.peek_mails(new_mail_uids)
+            for mail in new_mails:
+                message = "[New mail] "
+                message += "uid=%d; " % mail.get_uid()
+                message += "subject : " + "\"%s\"; " % mail.get_subject()
+                message += "from : \"%s\"; " % mail.get_sender()[1]
+                message += "result : "
+                suspicious_files = self.check_mail(mail)
+                result = len(suspicious_files) != 0
+                message += "SUSPICIOUS" if result else "SAFE"
+                if result:
+                    message += "; suspicious_files : " + ', '.join(suspicious_files)
+                    message += "; Reply to the bad guy ..."
+                    reply(mail.get_sender()[1])
+                    message += "DONE"
+                print message
+            if len(new_mail_uids) != 0:
+                last_largest_mail_uid = new_mail_uids[-1]
             time.sleep(3)
 
     def __del__(self):
