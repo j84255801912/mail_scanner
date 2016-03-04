@@ -2,9 +2,9 @@
 # -*- coding : utf-8 -*-
 
 import argparse
-import os
 import email
-import imaplib
+import imapclient
+import os
 import smtplib
 import sys
 import time
@@ -34,15 +34,17 @@ def get_user_info():
 
     return load_config_file('config')
 
-class IMAPClient(object):
+class WrappedIMAP(object):
 
-    def __init__(self, imap_server, username, password, ssl=True):
+    def __init__(self, imap_server, username, password, ssl=True, check_hostname=False):
 
-        self._mailbox = "INBOX"
-        self._imap = (imaplib.IMAP4_SSL if ssl else imaplib.IMAP4)(imap_server)
+        self._mailbox = 'INBOX'
+        context = imapclient.create_default_context()
+        context.check_hostname = check_hostname
+        self._imap = imapclient.IMAPClient(imap_server, use_uid=True, ssl=ssl, ssl_context=context)
         # TODO: handle the case when response is 'NO'
         self._imap.login(username, password)
-        self._imap.select(self._mailbox) # default selecting the mailbox 'INBOX'
+        self._imap.select_folder(self._mailbox) # default selecting the mailbox 'INBOX'
 
     def list_mail_box(self):
 
@@ -54,34 +56,35 @@ class IMAPClient(object):
         """
 
         # TODO: this is nasty, should find another way to refresh mailbox
-        self._imap.close()
-        self._imap.select(self._mailbox)
+        self._imap.close_folder()
+        self._imap.select_folder(self._mailbox)
 
     def search_mail_uids(self, critirium):
 
         self._refresh_mailbox()
-        result, data = self._imap.uid('search', None, critirium)
-        return map(int, data[0].split(' '))
+        result = self._imap.search(critirium)
+        return result
 
     def peek_mail(self, uid):
 
         # peek doesnt' add the flag \\SEEN
-        result, data = self._imap.uid('fetch', uid, "(BODY.PEEK[])")
-        raw_mail = data[0][1]
+        result = self._imap.fetch([uid], ['BODY.PEEK[]'])
+        raw_mail = result[uid]['BODY[]']
         mail = Email(uid, raw_mail)
         return mail
 
     def fetch_mail(self, uid):
 
-        result, data = self._imap.uid('fetch', uid, "(RFC822)")
-        raw_mail = data[0][1]
+        result = self._imap.fetch([uid], ['BODY.PEEK[]'])
+        raw_mail = result[uid]['BODY[]']
         mail = Email(uid, raw_mail)
         return mail
 
+    '''
     def mark_mail_as_unread(self, uid):
 
         self._imap.uid('STORE', uid, '-FLAGS', '\\SEEN')
-
+    '''
     def check_mail(self, mail):
         """
             return : a list of suspicious files' name.
@@ -152,7 +155,7 @@ class IMAPClient(object):
 
     def __del__(self):
 
-        self._imap.close() # close the selected mailbox
+        self._imap.close_folder() # close the selected mailbox
         self._imap.logout()
 
 
@@ -296,19 +299,19 @@ def reply(recipient):
 def test_scan_all_mails():
 
     smtp_server, imap_server, username, password = get_user_info()
-    imap = IMAPClient(imap_server, username, password)
+    imap = WrappedIMAP(imap_server, username, password)
     imap.scan_all_mails()
 
 def test_monitor_new_mails():
 
     smtp_server, imap_server, username, password = get_user_info()
-    imap = IMAPClient(imap_server, username, password)
+    imap = WrappedIMAP(imap_server, username, password)
     imap.monitor_new_mails()
 
 def test_imap():
 
     smtp_server, imap_server, username, password = get_user_info()
-    m = IMAPClient(imap_server, username, password)
+    m = WrappedIMap(imap_server, username, password)
     for i in m.search_mail_uids('ALL'):
         mail = m.peek_mail(i)
         files = mail.get_attached_files()
@@ -354,7 +357,7 @@ def main():
     mode = args.mode
 
     smtp_server, imap_server, username, password = get_user_info()
-    imap = IMAPClient(imap_server, username, password)
+    imap = WrappedIMAP(imap_server, username, password)
 
     if mode == 'scan':
         imap.scan_all_mails()

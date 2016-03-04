@@ -4,7 +4,7 @@ by j84255801912@gmail.com
 
 ## Dependency
 ```bsh
-$ pip install oletools
+$ pip install oletools imapclient
 ```
 
 ## Configure files
