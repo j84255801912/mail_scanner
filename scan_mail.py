@@ -12,6 +12,7 @@ import time
 import ConfigParser
 import StringIO
 
+from backports import ssl
 from email.header import Header, decode_header
 from email.mime.text import MIMEText
 from oletools.olevba import VBA_Parser, TYPE_OLE, TYPE_OpenXML, TYPE_Word2003_XML, TYPE_MHTML
@@ -27,24 +28,38 @@ def load_config_file(config_file):
     return (config.get('root', 'smtp_server'),
             config.get('root', 'imap_server'),
             config.get('root', 'username'),
-            config.get('root', 'password')
+            config.get('root', 'password'),
+            config.get('root', 'email')
     )
 
 def get_user_info():
 
-    return load_config_file('config')
+    temp = load_config_file('config')
+    return temp
 
 class WrappedIMAP(object):
 
-    def __init__(self, imap_server, username, password, ssl=True, check_hostname=False):
+    def __init__(self, imap_server, username, password, ssl_mode='starttls'):
 
         self._mailbox = 'INBOX'
-        context = imapclient.create_default_context()
-        context.check_hostname = check_hostname
-        self._imap = imapclient.IMAPClient(imap_server, use_uid=True, ssl=ssl, ssl_context=context)
+        context = imapclient.tls.create_default_context()
+        context.check_hostname = False
+        # don't verify the certificate if the certificate is broken
+        context.verify_mode = ssl.CERT_NONE
+        if ssl_mode == 'starttls':
+            # This uses the method named starttls()
+            # it use normal port without ssl, and then switch to the tls mode.
+            self._imap = imapclient.IMAPClient(imap_server, use_uid=True, port=143)
+            self._imap.starttls(ssl_context=context)
+        elif ssl_mode == 'ssl':
+            self._imap = imapclient.IMAPClient(
+                imap_server, use_uid=True, ssl=True, port=993, ssl_context=context
+            )
+        else:
+            raise ValueError("WrappedIMAP only supports ssl or starttls")
         # TODO: handle the case when response is 'NO'
         self._imap.login(username, password)
-        self._imap.select_folder(self._mailbox) # default selecting the mailbox 'INBOX'
+        self._imap.select_folder(self._mailbox) # by default select the mailbox 'INBOX'
 
     def list_mail_box(self):
 
