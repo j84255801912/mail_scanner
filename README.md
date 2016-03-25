@@ -17,7 +17,8 @@ config
 ```config
 smtp_server=smtp.gmail.com
 imap_server=imap.gmail.com
-username=abcdefg@gmail.com
+email=abcdefg@gmail.com
+username=abcdefg
 password=12345678
 ```
 
