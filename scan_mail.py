@@ -8,6 +8,7 @@ import os
 import smtplib
 import sys
 import time
+import zipfile
 
 import ConfigParser
 import StringIO
@@ -19,7 +20,7 @@ from oletools.olevba import VBA_Parser, TYPE_OLE, TYPE_OpenXML, TYPE_Word2003_XM
 
 def load_config_file(config_file):
 
-    with open(config_file) as f:
+    with open(config_file, 'rb') as f:
         file_content = "[root]\n"
         file_content += f.read()
     content_str_fp = StringIO.StringIO(file_content)
@@ -113,14 +114,52 @@ class WrappedIMAP(object):
         if not os.path.exists(mail_path):
             os.makedirs(mail_path)
 
-        with open(mail_path + '/mail.txt', 'w') as f:
+        with open(mail_path + '/mail.txt', 'wb') as f:
             f.write(mail.get_raw_mail() + '\n')
 
         files = mail.get_attached_files()
         for the_file in files:
-            with open(mail_path + '/' + the_file.get_filename(), 'w') as f:
+            with open(mail_path + '/' + the_file.get_filename(), 'wb') as f:
                 f.write(the_file.get_file_content())
     '''
+
+    def check_regular_file(self, filename, file_content):
+
+        if is_suspicious(filename, file_content):
+            return True
+#        print "Not suspicious"
+        return False
+
+    def check_zip(self, file_message):
+        """
+            return if this file is suspicious
+        """
+
+        # TODO : Support recursive unzip
+        the_zip = zipfile.ZipFile(file_message.get_file_object())
+        for i in the_zip.infolist():
+            encrypted = i.flag_bits & 0x01
+#            print i.filename, encrypted
+            if encrypted:
+                f = the_zip.open(i.filename, pwd='123')
+            else:
+                f = the_zip.open(i.filename)
+#            if self.check_regular_file(FileMessage())
+            if self.check_regular_file(i.filename, f.read()):
+                return True
+        return False
+
+    def check_file(self, file_message):
+        """
+            return if this file is suspicious.
+        """
+
+        if file_message.is_zip():
+            return self.check_zip(file_message)
+
+        pass # do other checks like rar, ...
+
+        return self.check_regular_file(file_message.get_filename(), file_message.get_file_content())
 
     def check_mail(self, mail):
         """
@@ -130,9 +169,8 @@ class WrappedIMAP(object):
         files = mail.get_attached_files()
         suspicious_files = []
         for the_file in files:
-            if the_file.is_ole_file() and the_file.is_suspicious():
+            if self.check_file(the_file):
                 suspicious_files.append(the_file.get_filename())
-
         return suspicious_files
 
     def scan_all_mails(self):
@@ -183,8 +221,8 @@ class WrappedIMAP(object):
                 suspicious_files = self.check_mail(mail)
                 result = len(suspicious_files) != 0
 
-                message = time.strftime("%Y%m%d %H:%M:%S UTC;", now_time)
-                message += "[SUSPICIOUS MAIL]" if result else "[SAFE MAIL]"
+                message = time.strftime("%Y%m%d %H:%M:%S UTC ", now_time)
+                message += "[SUSPICIOUS MAIL] " if result else "[SAFE MAIL] "
                 message += "uid=%d; " % mail.get_uid()
                 message += "subject : " + "\"%s\"; " % mail.get_subject()
                 message += "from : \"%s\"; " % mail.get_sender()[1]
@@ -193,7 +231,7 @@ class WrappedIMAP(object):
                 subject = "[SUSPICIOUS MAIL]" if result else "[SAFE MAIL]"
                 subject += " : " + mail.get_subject()
                 reply(mail.get_sender()[1], subject, message)
-                with open('./log.txt', 'a') as f:
+                with open('./mail.log', 'ab') as f:
                     f.write(message + '\n')
             if len(new_mail_uids) != 0:
                 last_largest_mail_uid = new_mail_uids[-1]
@@ -243,11 +281,17 @@ class Email(object):
             return list of tupe (filename, file_content, Email objects)
         """
 
+        if self._message.get_content_maintype() != 'multipart':
+            return []
         files = []
         for part in self._message.walk():
-            # TODO : deal with other types!
-            if part.get_content_maintype() == 'application':
-                files.append(FileMessage(part, self))
+            # If a part is an attachment, it must have 'Content-Disposition'
+            # field in the part of its body.
+            if part.get_content_maintype() == 'multipart':
+                continue         
+            if part.get('Content-Disposition') == None:
+                continue
+            files.append(FileMessage(part, self))
         return files
 
 
@@ -260,15 +304,28 @@ class FileMessage(object):
     def __init__(self, file_message, mail_message):
 
         self._file_message = file_message
-        self._mail_message = mail_message
+        self._original_mail_message = mail_message
+        self._file_object = StringIO.StringIO(self.get_file_content())
 
-    def get_mail_message(self):
+    def get_file_object(self):
 
-        return self._mail_message
+        return self._file_object
+
+    def get_original_mail_message(self):
+
+        return self._original_mail_message
 
     def get_file_content(self):
 
         return self._file_message.get_payload(decode=True)
+
+    def get_file_maintype(self):
+
+        return self._file_message.get_content_maintype()
+
+    def get_file_subtype(self):
+
+        return self._file_message.get_content_subtype()
 
     def get_filename(self):
 
@@ -277,14 +334,26 @@ class FileMessage(object):
             filename = filename.decode(charset)
         return filename
 
+    def is_zip(self):
+
+        return zipfile.is_zipfile(self.get_file_object())
+
+    def is_rar(self):
+
+        pass
+
     def is_ole_file(self):
         """
             Used to decide if an email.message.Message type attached file is
             ole type file or not
         """
-        file_message = self._file_message
-        maintype = file_message.get_content_maintype()
-        subtype = file_message.get_content_subtype()
+
+        '''
+        maintype = self.get_file_maintype()
+        subtype = self.get_file_subtype()
+        print "%s is type %s/%s" % (
+            self.get_filename(), self.get_file_maintype(), self.get_file_subtype()
+        )
         ole_subtypes = [
             'msword',
             'mspowerpoint',
@@ -294,11 +363,18 @@ class FileMessage(object):
         if maintype == 'application' and subtype in ole_subtypes:
             return True
         return False
+        '''
+        ole_types = [
+            '.doc', '.docx'
+        ]
+        if self.get_filename().lower().endswith(ole_types):
+            return True
+        return False
 
     def is_suspicious(self):
 
         filename = self.get_filename()
-        file_content = self.get_file_content()
+        file_content = self.get_content()
         return is_suspicious(filename, file_content)
 
 
@@ -317,25 +393,6 @@ def is_suspicious(filename, file_content):
     for kw_type, keyword, description in results:
         if kw_type in vba_suspicious_type:
             return True
-    return False
-
-
-def is_ole_file(file_message):
-    """
-        Used to decide if an email.message.Message type attached file is
-        ole type file or not
-    """
-
-    maintype = file_message.get_content_maintype()
-    subtype = file_message.get_content_subtype()
-    ole_subtypes = [
-        'msword',
-        'mspowerpoint',
-        'vnd.ms-excel',
-        'ms-excel',
-    ]
-    if maintype == 'application' and subtype in ole_subtypes:
-        return True
     return False
 
 def send_msg(smtp_server, username, password, msg, starttls=False):
