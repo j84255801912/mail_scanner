@@ -80,11 +80,30 @@ class MailScanner(object):
         msg['Subject'] = Header(subject, 'utf-8')
         self.send_msg(msg)
 
+    def check_vba(self, file_message):
+
+        filename = file_message.get_filename()
+        file_content = file_message.get_file_content()
+
+        vba_types = ['AutoExec', 'Suspicious', 'IOC',
+                     'Hex String','Base64 String', 'Dridex String',
+                     'VBA obfuscated Strings'
+        ]
+        vba_suspicious_type = vba_types[:3]
+        vbaparser = VBA_Parser(filename, file_content)
+
+        if not vbaparser.detect_vba_macros():
+            return False
+        results = vbaparser.analyze_macros()
+        for kw_type, keyword, description in results:
+            if kw_type in vba_suspicious_type:
+                return True
+        return False
+
     def check_regular_file(self, file_message):
 
-        if check_vba(file_message):
+        if file_message.is_ole() and self.check_vba(file_message):
             return True
-#        print "Not suspicious"
         return False
 
     def check_zip(self, file_message):
@@ -399,26 +418,6 @@ class FileMessage(object):
             return True
         return False
 
-
-def check_vba(file_message):
-
-    filename = file_message.get_filename()
-    file_content = file_message.get_file_content()
-
-    vba_types = ['AutoExec', 'Suspicious', 'IOC',
-                 'Hex String','Base64 String', 'Dridex String',
-                 'VBA obfuscated Strings'
-    ]
-    vba_suspicious_type = vba_types[:3]
-    vbaparser = VBA_Parser(filename, file_content)
-
-    if not vbaparser.detect_vba_macros():
-        return False
-    results = vbaparser.analyze_macros()
-    for kw_type, keyword, description in results:
-        if kw_type in vba_suspicious_type:
-            return True
-    return False
 
 
 def test_scan_all_mails():
