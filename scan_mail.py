@@ -123,16 +123,16 @@ class WrappedIMAP(object):
                 f.write(the_file.get_file_content())
     '''
 
-    def check_regular_file(self, filename, file_content):
+    def check_regular_file(self, file_message):
 
-        if is_suspicious(filename, file_content):
+        if is_suspicious(file_message):
             return True
 #        print "Not suspicious"
         return False
 
     def check_zip(self, file_message):
         """
-            return if this file is suspicious
+            return if this zip is suspicious
         """
 
         # TODO : Support recursive unzip
@@ -144,8 +144,8 @@ class WrappedIMAP(object):
                 f = the_zip.open(i.filename, pwd='123')
             else:
                 f = the_zip.open(i.filename)
-#            if self.check_regular_file(FileMessage())
-            if self.check_regular_file(i.filename, f.read()):
+            this_file = FileMessage(i.filename, f.read())
+            if self.check_file(this_file):
                 return True
         return False
 
@@ -159,7 +159,7 @@ class WrappedIMAP(object):
 
         pass # do other checks like rar, ...
 
-        return self.check_regular_file(file_message.get_filename(), file_message.get_file_content())
+        return self.check_regular_file(file_message)
 
     def check_mail(self, mail):
         """
@@ -281,6 +281,18 @@ class Email(object):
             return list of tupe (filename, file_content, Email objects)
         """
 
+        def extract_file_from_message(file_message):
+            """
+            extract filename and file_content from a
+            email.message.Message
+            """
+
+            filename, charset = decode_header(file_message.get_filename())[0]
+            if charset:
+                filename = filename.decode(charset)
+            file_content = file_message.get_payload(decode=True)
+            return FileMessage(filename, file_content)
+
         if self._message.get_content_maintype() != 'multipart':
             return []
         files = []
@@ -291,7 +303,7 @@ class Email(object):
                 continue         
             if part.get('Content-Disposition') == None:
                 continue
-            files.append(FileMessage(part, self))
+            files.append(extract_file_from_message(part))
         return files
 
 
@@ -301,42 +313,27 @@ class FileMessage(object):
         files.
     """
 
-    def __init__(self, file_message, mail_message):
+    def __init__(self, filename, file_content):
 
-        self._file_message = file_message
-        self._original_mail_message = mail_message
-        self._file_object = StringIO.StringIO(self.get_file_content())
+        self._filename = filename
+        self._file_content = file_content
+        self._file_object = StringIO.StringIO(file_content)
+
+    def get_filename(self):
+
+        return self._filename
+
+    def get_file_content(self):
+
+        return self._file_content
 
     def get_file_object(self):
 
         return self._file_object
 
-    def get_original_mail_message(self):
-
-        return self._original_mail_message
-
-    def get_file_content(self):
-
-        return self._file_message.get_payload(decode=True)
-
-    def get_file_maintype(self):
-
-        return self._file_message.get_content_maintype()
-
-    def get_file_subtype(self):
-
-        return self._file_message.get_content_subtype()
-
-    def get_filename(self):
-
-        filename, charset = decode_header(self._file_message.get_filename())[0]
-        if charset:
-            filename = filename.decode(charset)
-        return filename
-
     def is_zip(self):
 
-        return zipfile.is_zipfile(self.get_file_object())
+        return zipfile.is_zipfile(self._file_object)
 
     def is_rar(self):
 
@@ -348,22 +345,6 @@ class FileMessage(object):
             ole type file or not
         """
 
-        '''
-        maintype = self.get_file_maintype()
-        subtype = self.get_file_subtype()
-        print "%s is type %s/%s" % (
-            self.get_filename(), self.get_file_maintype(), self.get_file_subtype()
-        )
-        ole_subtypes = [
-            'msword',
-            'mspowerpoint',
-            'vnd.ms-excel',
-            'ms-excel',
-        ]
-        if maintype == 'application' and subtype in ole_subtypes:
-            return True
-        return False
-        '''
         ole_types = [
             '.doc', '.docx'
         ]
@@ -373,12 +354,13 @@ class FileMessage(object):
 
     def is_suspicious(self):
 
-        filename = self.get_filename()
-        file_content = self.get_content()
-        return is_suspicious(filename, file_content)
+        return is_suspicious(self)
 
 
-def is_suspicious(filename, file_content):
+def is_suspicious(file_message):
+
+    filename = file_message.get_filename()
+    file_content = file_message.get_file_content()
 
     vba_types = ['AutoExec', 'Suspicious', 'IOC',
                  'Hex String','Base64 String', 'Dridex String',
