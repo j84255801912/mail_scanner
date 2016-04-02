@@ -411,9 +411,9 @@ class FileMessage(object):
             ole type file or not
         """
 
-        ole_types = [
+        ole_types = (
             '.doc', '.docx'
-        ]
+        )
         if self.get_filename().lower().endswith(ole_types):
             return True
         return False
