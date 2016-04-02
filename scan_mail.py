@@ -18,25 +18,199 @@ from email.header import Header, decode_header
 from email.mime.text import MIMEText
 from oletools.olevba import VBA_Parser, TYPE_OLE, TYPE_OpenXML, TYPE_Word2003_XML, TYPE_MHTML
 
-def load_config_file(config_file):
 
-    with open(config_file, 'rb') as f:
-        file_content = "[root]\n"
-        file_content += f.read()
-    content_str_fp = StringIO.StringIO(file_content)
-    config = ConfigParser.RawConfigParser()
-    config.readfp(content_str_fp)
-    return (config.get('root', 'smtp_server'),
-            config.get('root', 'imap_server'),
-            config.get('root', 'username'),
-            config.get('root', 'password'),
-            config.get('root', 'email')
-    )
+class MailScanner(object):
+    """
+    A mail scanner has ability to get attachments in a mailbox, and check
+    if they are virus or not.
+    """
 
-def get_user_info():
+    def __init__(self):
+        
+        self._smtp_server, self._imap_server, self._username,\
+            self._password, self._email_address = self.get_user_info()
+        self._imap = WrappedIMAP(
+            self._imap_server, self._username, self._password
+        )
 
-    temp = load_config_file('config')
-    return temp
+    def load_config_file(self, config_file):
+
+        with open(config_file, 'rb') as f:
+            file_content = "[root]\n"
+            file_content += f.read()
+        content_str_fp = StringIO.StringIO(file_content)
+        config = ConfigParser.RawConfigParser()
+        config.readfp(content_str_fp)
+        return (config.get('root', 'smtp_server'),
+                config.get('root', 'imap_server'),
+                config.get('root', 'username'),
+                config.get('root', 'password'),
+                config.get('root', 'email_address')
+        )
+
+    def get_user_info(self):
+
+        temp = self.load_config_file('./config')
+        return temp
+
+    def send_msg(self, msg, starttls=False):
+        """
+            @msg : MIMEText type
+        """
+
+        s = smtplib.SMTP(self._smtp_server, 587 if starttls else 25, timeout=10)
+        try:
+            if starttls:
+                s.starttls()
+                s.login(self._username, self._password)
+            s.sendmail(msg['From'], [msg['To']], msg.as_string())
+            return True
+        except Exception, e:
+            print "Failed to send mail"
+            print e
+            return False
+        finally:
+            s.quit() # quit no matter exceptions occur
+
+    def reply(self, recipient, subject, text):
+
+        msg = MIMEText(text, 'plain', 'utf-8')
+        msg['From'] = self._email_address
+        msg['To'] = ', '.join([recipient])
+        msg['Subject'] = Header(subject, 'utf-8')
+        self.send_msg(msg)
+
+    def check_regular_file(self, file_message):
+
+        if check_vba(file_message):
+            return True
+#        print "Not suspicious"
+        return False
+
+    def check_zip(self, file_message):
+        """
+            return if this zip is suspicious
+        """
+
+        # TODO : Support recursive unzip
+        the_zip = zipfile.ZipFile(file_message.get_file_object())
+        for i in the_zip.infolist():
+            encrypted = i.flag_bits & 0x01
+            if encrypted:
+                f = the_zip.open(i.filename, pwd='123')
+            else:
+                f = the_zip.open(i.filename)
+            this_file = FileMessage(i.filename, f.read())
+            if self.check_file(this_file):
+                return True
+        return False
+
+    def check_file(self, file_message):
+        """
+            return if this file is suspicious.
+        """
+
+        if file_message.is_zip():
+            return self.check_zip(file_message)
+
+        pass # do other checks like rar, ...
+
+        return self.check_regular_file(file_message)
+
+    def check_mail(self, mail):
+        """
+            return : a list of suspicious files' name.
+        """
+
+        files = mail.get_attached_files()
+        suspicious_files = []
+        for the_file in files:
+            if self.check_file(the_file):
+                suspicious_files.append(the_file.get_filename())
+        return suspicious_files
+
+    def scan_all_mails(self):
+
+        imap = self._imap
+        print "\nScanning mailbox \"%s\" ...\n" % imap.get_current_mailbox()
+        contains_suspicious_mail = False
+        mail_uids = imap.search_mail_uids('ALL')
+        mails = imap.peek_mails(mail_uids)
+        for mail in mails:
+            suspicious_files = self.check_mail(mail)
+            if len(suspicious_files) != 0:
+                message = "[Suspicious Mail Found] "
+                message += "uid=%d; " % mail.get_uid()
+                message += "subject=\"%s\"; " % mail.get_subject()
+                message += "suspicious_files=\"%s\"" % ', '.join(suspicious_files)
+                print message
+                contains_suspicious_mail = True
+        print "\nDONE\n"
+        if not contains_suspicious_mail:
+            print "\nCongrats! There is no suspicious mail in your mailbox!\n"
+
+    def monitor_new_mails(self, timeout=2147483647):
+        """
+            Wait for new mails arrival, and check them.
+            Default timeout is 2147483647 seconds.
+        """
+
+        imap = self._imap
+        last_mail_uids = imap.search_mail_uids('ALL')
+        last_largest_mail_uid = 0 if len(last_mail_uids) == 0 else last_mail_uids[-1]
+        start_time = time.time()
+        print "\nWaiting for new mails ...\n"
+        while time.time() - start_time < timeout:
+            # fetch new mails with bigger uid than the last_biggest one
+            new_mail_uids = imap.search_mail_uids(
+                ['UID', '%d:*' % (last_largest_mail_uid + 1)]
+            )
+            # if there is no new mail, {last_largest_mail_uid} will be included
+            # in new_mail_uids, due to the fact that %d:* means the range from
+            # {%d+1} to {last_llargest_mail_uid}.
+            try:
+                new_mail_uids.remove(last_largest_mail_uid)
+            except ValueError:
+                pass
+            new_mails = imap.peek_mails(new_mail_uids)
+            for mail in new_mails:
+                now_time = time.gmtime()
+                # self.save_mail_attachments(mail, now_time)
+                suspicious_files = self.check_mail(mail)
+                result = len(suspicious_files) != 0
+
+                message = time.strftime("%Y%m%d %H:%M:%S UTC ", now_time)
+                message += "[SUSPICIOUS MAIL] " if result else "[SAFE MAIL] "
+                message += "uid=%d; " % mail.get_uid()
+                message += "subject : " + "\"%s\"; " % mail.get_subject()
+                message += "from : \"%s\"; " % mail.get_sender()[1]
+                if result:
+                    message += "; suspicious_files : " + ', '.join(suspicious_files)
+                subject = "[SUSPICIOUS MAIL]" if result else "[SAFE MAIL]"
+                subject += " : " + mail.get_subject()
+                self.reply(mail.get_sender()[1], subject, message)
+                with open('./mail.log', 'ab') as f:
+                    f.write(message + '\n')
+            if len(new_mail_uids) != 0:
+                last_largest_mail_uid = new_mail_uids[-1]
+            time.sleep(3)
+    '''
+    def save_mail_attachments(self, mail, now_time):
+
+        now_time = time.strftime("%Y%m%d_%H%M%S_UTC", now_time)
+        mail_path = "./mails/" + now_time
+        if not os.path.exists(mail_path):
+            os.makedirs(mail_path)
+
+        with open(mail_path + '/mail.txt', 'wb') as f:
+            f.write(mail.get_raw_mail() + '\n')
+
+        files = mail.get_attached_files()
+        for the_file in files:
+            with open(mail_path + '/' + the_file.get_filename(), 'wb') as f:
+                f.write(the_file.get_file_content())
+    '''
+
 
 class WrappedIMAP(object):
 
@@ -62,9 +236,13 @@ class WrappedIMAP(object):
         self._imap.login(username, password)
         self._imap.select_folder(self._mailbox) # by default select the mailbox 'INBOX'
 
-    def list_mail_box(self):
+    def get_current_mailbox(self):
 
-        self._imap.list_folders()
+        return self._mailbox
+
+    def list_all_mailbox(self):
+
+        return self._imap.list_folders()
 
     def _refresh_mailbox(self):
         """
@@ -105,137 +283,6 @@ class WrappedIMAP(object):
         raw_mail = result[uid]['BODY[]']
         mail = Email(uid, raw_mail)
         return mail
-
-    '''
-    def save_mail_attachments(self, mail, now_time):
-
-        now_time = time.strftime("%Y%m%d_%H%M%S_UTC", now_time)
-        mail_path = "./mails/" + now_time
-        if not os.path.exists(mail_path):
-            os.makedirs(mail_path)
-
-        with open(mail_path + '/mail.txt', 'wb') as f:
-            f.write(mail.get_raw_mail() + '\n')
-
-        files = mail.get_attached_files()
-        for the_file in files:
-            with open(mail_path + '/' + the_file.get_filename(), 'wb') as f:
-                f.write(the_file.get_file_content())
-    '''
-
-    def check_regular_file(self, file_message):
-
-        if check_vba(file_message):
-            return True
-#        print "Not suspicious"
-        return False
-
-    def check_zip(self, file_message):
-        """
-            return if this zip is suspicious
-        """
-
-        # TODO : Support recursive unzip
-        the_zip = zipfile.ZipFile(file_message.get_file_object())
-        for i in the_zip.infolist():
-            encrypted = i.flag_bits & 0x01
-#            print i.filename, encrypted
-            if encrypted:
-                f = the_zip.open(i.filename, pwd='123')
-            else:
-                f = the_zip.open(i.filename)
-            this_file = FileMessage(i.filename, f.read())
-            if self.check_file(this_file):
-                return True
-        return False
-
-    def check_file(self, file_message):
-        """
-            return if this file is suspicious.
-        """
-
-        if file_message.is_zip():
-            return self.check_zip(file_message)
-
-        pass # do other checks like rar, ...
-
-        return self.check_regular_file(file_message)
-
-    def check_mail(self, mail):
-        """
-            return : a list of suspicious files' name.
-        """
-
-        files = mail.get_attached_files()
-        suspicious_files = []
-        for the_file in files:
-            if self.check_file(the_file):
-                suspicious_files.append(the_file.get_filename())
-        return suspicious_files
-
-    def scan_all_mails(self):
-
-        print "\nScanning mailbox \"%s\" ...\n" % self._mailbox
-        contains_suspicious_mail = False
-        mail_uids = self.search_mail_uids('ALL')
-        mails = self.peek_mails(mail_uids)
-        for mail in mails:
-            suspicious_files = self.check_mail(mail)
-            if len(suspicious_files) != 0:
-                message = "[Suspicious Mail Found] "
-                message += "uid=%d; " % mail.get_uid()
-                message += "subject=\"%s\"; " % mail.get_subject()
-                message += "suspicious_files=\"%s\"" % ', '.join(suspicious_files)
-                print message
-                contains_suspicious_mail = True
-        print "\nDONE\n"
-        if not contains_suspicious_mail:
-            print "\nCongrats! There is no suspicious mail in your mailbox!\n"
-
-    def monitor_new_mails(self, timeout=2147483647):
-        """
-            Wait for new mails arrival, and check them.
-            Default timeout is 2147483647 seconds.
-        """
-
-        last_mail_uids = self.search_mail_uids('ALL')
-        last_largest_mail_uid = 0 if len(last_mail_uids) == 0 else last_mail_uids[-1]
-        start_time = time.time()
-        print "\nWaiting for new mails ...\n"
-        while time.time() - start_time < timeout:
-            # fetch new mails with bigger uid than the last_biggest one
-            new_mail_uids = self.search_mail_uids(
-                ['UID', '%d:*' % (last_largest_mail_uid + 1)]
-            )
-            # if there is no new mail, {last_largest_mail_uid} will be included
-            # in new_mail_uids, due to the fact that %d:* means the range from
-            # {%d+1} to {last_llargest_mail_uid}.
-            try:
-                new_mail_uids.remove(last_largest_mail_uid)
-            except ValueError:
-                pass
-            new_mails = self.peek_mails(new_mail_uids)
-            for mail in new_mails:
-                now_time = time.gmtime()
-                # self.save_mail_attachments(mail, now_time)
-                suspicious_files = self.check_mail(mail)
-                result = len(suspicious_files) != 0
-
-                message = time.strftime("%Y%m%d %H:%M:%S UTC ", now_time)
-                message += "[SUSPICIOUS MAIL] " if result else "[SAFE MAIL] "
-                message += "uid=%d; " % mail.get_uid()
-                message += "subject : " + "\"%s\"; " % mail.get_subject()
-                message += "from : \"%s\"; " % mail.get_sender()[1]
-                if result:
-                    message += "; suspicious_files : " + ', '.join(suspicious_files)
-                subject = "[SUSPICIOUS MAIL]" if result else "[SAFE MAIL]"
-                subject += " : " + mail.get_subject()
-                reply(mail.get_sender()[1], subject, message)
-                with open('./mail.log', 'ab') as f:
-                    f.write(message + '\n')
-            if len(new_mail_uids) != 0:
-                last_largest_mail_uid = new_mail_uids[-1]
-            time.sleep(3)
 
     def __del__(self):
 
@@ -337,7 +384,7 @@ class FileMessage(object):
 
     def is_rar(self):
 
-        pass
+        return False
 
     def is_ole(self):
         """
@@ -373,32 +420,6 @@ def check_vba(file_message):
             return True
     return False
 
-def send_msg(smtp_server, username, password, msg, starttls=False):
-    """
-        @msg : MIMEText type
-    """
-
-    s = smtplib.SMTP(smtp_server, 587 if starttls else 25, timeout=10)
-    try:
-        if starttls:
-            s.starttls()
-            s.login(username, password)
-        s.sendmail(msg['From'], [msg['To']], msg.as_string())
-        return True
-    except Exception, e:
-        print e
-        return False
-    finally:
-        s.quit() # quit no matter exceptions occur
-
-def reply(recipient, subject, text):
-
-    smtp_server, imap_server, username, password, email = get_user_info()
-    msg = MIMEText(text, 'plain', 'utf-8')
-    msg['From'] = email
-    msg['To'] = ', '.join([recipient])
-    msg['Subject'] = Header(subject, 'utf-8')
-    send_msg(smtp_server, username, password, msg)
 
 def test_scan_all_mails():
 
@@ -459,16 +480,15 @@ def main():
     args = parser.parse_args()
     mode = args.mode
 
-    smtp_server, imap_server, username, password, email = get_user_info()
-    imap = WrappedIMAP(imap_server, username, password)
+    ms = MailScanner()
 
     if mode == 'scan':
-        imap.scan_all_mails()
+        ms.scan_all_mails()
     elif mode == 'monitor':
-        imap.monitor_new_mails()
+        ms.monitor_new_mails()
     elif mode == 'combo':
-        imap.scan_all_mails()
-        imap.monitor_new_mails()
+        ms.scan_all_mails()
+        ms.monitor_new_mails()
     else:
         print "mode need to be 'scan' or 'monitor' or 'combo'."
 
