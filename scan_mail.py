@@ -125,7 +125,7 @@ class WrappedIMAP(object):
 
     def check_regular_file(self, file_message):
 
-        if is_suspicious(file_message):
+        if check_vba(file_message):
             return True
 #        print "Not suspicious"
         return False
@@ -353,7 +353,7 @@ class FileMessage(object):
         return False
 
 
-def is_suspicious(file_message):
+def check_vba(file_message):
 
     filename = file_message.get_filename()
     file_content = file_message.get_file_content()
@@ -421,7 +421,7 @@ def test_imap():
         files = mail.get_attached_files()
         for the_file in files:
             print the_file.get_filename(),
-            print is_suspicious(the_file)
+            print check_vba(the_file)
 
 def test_smtp():
 
@@ -443,8 +443,8 @@ def test_vba():
     for the_file in os.listdir(path):
         the_file = path + '/' + the_file
         with open(the_file, 'rb') as f:
-            result = is_suspicious(the_file, f.read())
-            print the_file + " : is_suspicious() = " + str(result)
+            result = check_vba(the_file, f.read())
+            print the_file + " : check_vba() = " + str(result)
 
 def main():
 
