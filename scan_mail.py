@@ -115,8 +115,12 @@ class MailScanner(object):
             return if this zip is suspicious
         """
 
-        # TODO : Support recursive unzip
+        # this supports recursively unzip
         the_zip = zipfile.ZipFile(file_message.get_file_object())
+        # infolist automatically show all files and dirs.
+        # In this for loop, some f will be dirs instead of regular files.
+        # These cases, f.read() == "", and f.get_filename() like "dir/dir/"
+        # It makes checks works normally.
         for i in the_zip.infolist():
             encrypted = i.flag_bits & 0x01
             if encrypted:
