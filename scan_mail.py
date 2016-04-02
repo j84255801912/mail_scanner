@@ -339,7 +339,7 @@ class FileMessage(object):
 
         pass
 
-    def is_ole_file(self):
+    def is_ole(self):
         """
             Used to decide if an email.message.Message type attached file is
             ole type file or not
@@ -351,10 +351,6 @@ class FileMessage(object):
         if self.get_filename().lower().endswith(ole_types):
             return True
         return False
-
-    def is_suspicious(self):
-
-        return is_suspicious(self)
 
 
 def is_suspicious(file_message):
@@ -425,7 +421,7 @@ def test_imap():
         files = mail.get_attached_files()
         for the_file in files:
             print the_file.get_filename(),
-            print the_file.is_suspicious()
+            print is_suspicious(the_file)
 
 def test_smtp():
 
