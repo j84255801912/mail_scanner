@@ -102,9 +102,13 @@ class MailScanner(object):
 
     def check_regular_file(self, file_message):
 
-        if file_message.is_ole() and self.check_vba(file_message):
-            return True
-        return False
+        result = False
+        if file_message.is_ole():
+            result |= self.check_vba(file_message)
+
+        pass  # TODO : here can be multiple checks.
+
+        return result
 
     def check_zip(self, file_message):
         """
@@ -132,7 +136,7 @@ class MailScanner(object):
         if file_message.is_zip():
             return self.check_zip(file_message)
 
-        pass # do other checks like rar, ...
+        pass # TODO : do other extracts like rar, ...
 
         return self.check_regular_file(file_message)
 
@@ -417,7 +421,6 @@ class FileMessage(object):
         if self.get_filename().lower().endswith(ole_types):
             return True
         return False
-
 
 
 def test_scan_all_mails():
