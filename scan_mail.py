@@ -26,7 +26,7 @@ class MailScanner(object):
     """
 
     def __init__(self):
-        
+
         self._smtp_server, self._imap_server, self._username,\
             self._password, self._email_address = self.get_user_info()
         self._imap = WrappedIMAP(
@@ -374,7 +374,7 @@ class Email(object):
             # If a part is an attachment, it must have 'Content-Disposition'
             # field in the part of its body.
             if part.get_content_maintype() == 'multipart':
-                continue         
+                continue
             if part.get('Content-Disposition') == None:
                 continue
             files.append(extract_file_from_message(part))
