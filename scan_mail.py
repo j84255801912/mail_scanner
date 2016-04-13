@@ -241,24 +241,32 @@ class MailScanner(object):
 
 class WrappedIMAP(object):
 
-    def __init__(self, imap_server, username, password, ssl_mode='starttls'):
+    MODE_NORMAL = 0
+    MODE_SSL = 1
+    MODE_STARTTLS = 2
+
+    def __init__(self, imap_server, username, password, ssl_mode=MODE_STARTTLS):
 
         self._mailbox = 'INBOX'
         context = imapclient.tls.create_default_context()
         context.check_hostname = False
         # don't verify the certificate if the certificate is broken
         context.verify_mode = ssl.CERT_NONE
-        if ssl_mode == 'starttls':
+        if ssl_mode == self.MODE_NORMAL:
+            self._imap = imapclient.IMAPClient(
+                imap_server, use_uid=True, port=143
+            )
+        elif ssl_mode == self.MODE_SSL:
+            self._imap = imapclient.IMAPClient(
+                imap_server, use_uid=True, ssl=True, port=993, ssl_context=context
+            )
+        elif ssl_mode == self.MODE_STARTTLS:
             # This uses the method named starttls()
             # it use normal port without ssl, and then switch to the tls mode.
             self._imap = imapclient.IMAPClient(imap_server, use_uid=True, port=143)
             self._imap.starttls(ssl_context=context)
-        elif ssl_mode == 'ssl':
-            self._imap = imapclient.IMAPClient(
-                imap_server, use_uid=True, ssl=True, port=993, ssl_context=context
-            )
         else:
-            raise ValueError("WrappedIMAP only supports ssl or starttls")
+            raise ValueError("WrappedIMAP only supports normal, ssl, starttls")
         # TODO: handle the case when response is 'NO'
         self._imap.login(username, password)
         self._imap.select_folder(self._mailbox) # by default select the mailbox 'INBOX'
