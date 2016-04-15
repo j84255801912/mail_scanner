@@ -43,7 +43,7 @@ class MailScanner(object):
 
     def load_config_file(self, config_file):
 
-        config = ConfigParser.RawConfigParser()
+        config = ConfigParser.RawConfigParser(allow_no_value=True)
         config.read(config_file)
         imap_columns = [
             "imap_server", "username", "password"
@@ -52,6 +52,7 @@ class MailScanner(object):
             "smtp_server", "username", "password", "email_address"
         ]
 
+        # parse imap config
         try:
             self._imap_config = {i[0]:i[1] for i in config.items('imap')}
         except ConfigParser.NoSectionError:
@@ -59,6 +60,7 @@ class MailScanner(object):
         if not self.check_config_format(self._imap_config, imap_columns):
             raise MailScannerException("imap config is incomplete")
 
+        # parse smtp config
         try:
             self._smtp_config = {i[0]:i[1] for i in config.items('smtp')}
             self._enable_smtp = True
@@ -72,7 +74,21 @@ class MailScanner(object):
         if not self._enable_smtp:
             message = "WARNING : smtp is disabled. "
             message += "MailScanner is unable to send mail."
+            print message
         # raise MailScannerException("smtp config is incomplete")
+
+        # parse virustotal api keys
+        try:
+            self._vt_api_keys = [i[0] for i in config.items('vt_api_keys')]
+            self._enable_vt_api = True
+        except ConfigParser.NoSectionError:
+            self._vt_api_keys = None
+            self._enable_vt_api = False
+        # Warning if virustotal api disabled
+        if not self._enable_vt_api:
+            message = "WARNING : virustotal api is disabled. "
+            message += "Some checks may be ignored."
+            print message
 
     def send_msg(self, msg, starttls=False):
         """
