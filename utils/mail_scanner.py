@@ -193,6 +193,8 @@ class MailScanner(object):
         # These cases, f.read() == "", and f.get_filename() like "dir/dir/"
         # It makes checks works normally.
         for i in the_zip.infolist():
+            if os.path.basename(i.filename) == '':
+                continue
             encrypted = i.flag_bits & 0x01
             if encrypted:
                 f = the_zip.open(i.filename, pwd='123')
