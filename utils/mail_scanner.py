@@ -79,11 +79,16 @@ class MailScanner(object):
             @msg : MIMEText type
         """
 
-        s = smtplib.SMTP(
-                self._smtp_config['smtp_server'],
-                587 if starttls else 25,
-                timeout=10
-        )
+        try:
+            s = smtplib.SMTP(
+                    self._smtp_config['smtp_server'],
+                    587 if starttls else 25,
+                    timeout=10
+            )
+        except Exception, e:
+            print "Failed to connect to smtp server",
+            print e
+            return False
         try:
             if starttls:
                 s.starttls()
