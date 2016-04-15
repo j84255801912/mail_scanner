@@ -6,7 +6,12 @@ import sys
 
 from formats import FileMessage
 
-class VtAPIException(Exception):
+class VtAPIError(Exception):
+
+    pass
+
+
+class VtAPINoReport(Exception):
 
     pass
 
@@ -48,7 +53,7 @@ def post_file(file_message, api_key):
         message = "HTTP request failed : "
         message += "\tstatus_code : %d\n" % r.status_code
         message += "\tmessage : %s\n" % r.text
-        raise VtAPIException(message)
+        raise VtAPIError(message)
     ro = json.loads(r.text)
     # ro has keys : permalink, sha1, resource, response_code, scan_id,
     #               verbose_msg, sha256, md5
@@ -98,11 +103,11 @@ def vt_get_scan_report(file_message, api_key):
         message = "HTTP request failed : "
         message += "\tstatus_code : %d\n" % r.status_code
         message += "\tmessage : %s\n" % r.text
-        raise VtAPIException(message)
+        raise VtAPIError(message)
     ro = json.loads(r.text)
     if ro['response_code'] == 0:
         message = "No report about this file found\n"
-        raise VtAPIException(message)
+        raise VtAPINoReport(message)
     # here we assume that ro['response_code'] == 1,
     # if not, the following code may fail.
     detected = False
@@ -112,14 +117,6 @@ def vt_get_scan_report(file_message, api_key):
             message += ("%s: %s ; " % (sw_name, report['result']))
         detected |= report['detected']
     return detected, message
-
-def main():
-
-    with open('../archives/bad.zip', 'rb') as f:
-        fm = FileMessage('bad.zip', f.read())
-        print vt_get_scan_report(fm,
-            "123"
-        )
 
 if __name__ == '__main__':
 

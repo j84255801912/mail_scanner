@@ -15,8 +15,9 @@ from oletools.olevba import VBA_Parser, TYPE_OLE, TYPE_OpenXML, TYPE_Word2003_XM
 
 from wrapped_imap import WrappedIMAP
 from formats import FileMessage
+from vt_api import VtAPIError, VtAPINoReport, vt_get_scan_report
 
-class MailScannerException(Exception):
+class MailScannerError(Exception):
 
     pass
 
@@ -56,9 +57,9 @@ class MailScanner(object):
         try:
             self._imap_config = {i[0]:i[1] for i in config.items('imap')}
         except ConfigParser.NoSectionError:
-            raise MailScannerException("No imap config in %s" % config_file)
+            raise MailScannerError("No imap config in %s" % config_file)
         if not self.check_config_format(self._imap_config, imap_columns):
-            raise MailScannerException("imap config is incomplete")
+            raise MailScannerError("imap config is incomplete")
 
         # parse smtp config
         try:
@@ -75,14 +76,15 @@ class MailScanner(object):
             message = "WARNING : smtp is disabled. "
             message += "MailScanner is unable to send mail."
             print message
-        # raise MailScannerException("smtp config is incomplete")
+        # raise MailScannerError("smtp config is incomplete")
 
         # parse virustotal api keys
         try:
             self._vt_api_keys = [i[0] for i in config.items('vt_api_keys')]
             self._enable_vt_api = True
         except ConfigParser.NoSectionError:
-            self._vt_api_keys = None
+            self._enable_vt_api = False
+        if len(self._vt_api_keys) == 0:
             self._enable_vt_api = False
         # Warning if virustotal api disabled
         if not self._enable_vt_api:
@@ -149,12 +151,32 @@ class MailScanner(object):
                 return True
         return False
 
+    def check_vt_api(self, file_message):
+
+        api_key = self._vt_api_keys[0]
+        try:
+            detected, message = vt_get_scan_report(file_message, api_key)
+            return detected, message
+        except VtAPINoReport, e:
+            ret = "Warning: virustotal API has no report; "
+            ret += "filename: {} ; ".format(file_message.get_filename())
+            ret += "Reason: {}".format(str(e))
+            print ret
+        except VtAPIError, e:
+            ret = "Warning: virustotal API error; "
+            ret += "filename: {} ; ".format(file_message.get_filename())
+            ret += "Reason: {}".format(str(e))
+            print ret
+        return False, ""
+
     def check_regular_file(self, file_message):
 
         result = False
         if file_message.is_ole():
             result |= self.check_vba(file_message)
-
+        if self._enable_vt_api:
+            detected, message = self.check_vt_api(file_message)
+            result |= detected
         pass  # TODO : here can be multiple checks.
 
         return result
