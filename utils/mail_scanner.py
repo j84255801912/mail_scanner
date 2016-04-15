@@ -253,7 +253,7 @@ class MailScanner(object):
                 now_time = time.gmtime()
                 # self.save_mail_attachments(mail, now_time)
                 suspicious_files = self.check_mail(mail)
-                result = len(suspicious_files) != 0
+                result = (len(suspicious_files) != 0)
 
                 message = time.strftime("%Y%m%d %H:%M:%S UTC ", now_time)
                 message += "[SUSPICIOUS MAIL] " if result else "[SAFE MAIL] "
