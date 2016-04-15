@@ -11,7 +11,7 @@ class VtAPIException(Exception):
     pass
 
 
-def post_file(file_message, api_keys):
+def post_file(file_message, api_key):
     """
     Posts files to virustotal.com,
     """
@@ -72,13 +72,18 @@ def vt_hash(file_message):
     ).hexdigest()
     return file_hash
 
-def vt_scan_file(file_message, api_keys):
+def vt_get_scan_report(file_message, api_key):
     """
     Calls virustotal file report api to get the result of a scanned file.
+    input:
+        file        :   FileMessage type
+        api_key     :   str type
+    output:
+        detected    :   bool type
+        message     :   str type
     """
 
     resource_hash = vt_hash(file_message)
-    print resource_hash
     retrieve_report_url = "https://www.virustotal.com/vtapi/v2/file/report"
     r = requests.post(
         retrieve_report_url,
@@ -100,17 +105,21 @@ def vt_scan_file(file_message, api_keys):
         raise VtAPIException(message)
     # here we assume that ro['response_code'] == 1,
     # if not, the following code may fail.
-    result = False
+    detected = False
+    message = "[Detected by virustotal api] "
     for sw_name, report in ro['scans'].iteritems():
-        detected = report['detect']
-        result = result or detected
-    return result
+        if report['detected']:
+            message += ("%s: %s ; " % (sw_name, report['result']))
+        detected |= report['detected']
+    return detected, message
 
 def main():
 
     with open('../archives/bad.zip', 'rb') as f:
         fm = FileMessage('bad.zip', f.read())
-        vt_scan_file(fm)
+        print vt_get_scan_report(fm,
+            "123"
+        )
 
 if __name__ == '__main__':
 
