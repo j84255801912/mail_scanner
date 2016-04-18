@@ -27,13 +27,14 @@ class MailScanner(object):
     if they are virus or not.
     """
 
-    def __init__(self, config_file='./config'):
+    def __init__(self, config_file='./config', ssl_mode=WrappedIMAP.MODE_SSL):
 
         self.load_config_file(config_file)
         self._imap = WrappedIMAP(
             self._imap_config['imap_server'],
             self._imap_config['username'],
-            self._imap_config['password']
+            self._imap_config['password'],
+            ssl_mode
         )
 
     def check_config_format(self, config, columns):

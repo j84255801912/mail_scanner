@@ -20,7 +20,7 @@ def main():
     args = parser.parse_args()
     mode = args.mode
 
-    ms = MailScanner('./config')
+    ms = MailScanner('./config', WrappedIMAP.MODE_STARTTLS)
 
     if mode == 'scan':
         ms.scan_all_mails()

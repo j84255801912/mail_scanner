@@ -6,18 +6,18 @@ from formats import Email, FileMessage
 
 class WrappedIMAP(object):
 
-    MODE_NORMAL = 0
+    MODE_NO_SSL = 0
     MODE_SSL = 1
     MODE_STARTTLS = 2
 
-    def __init__(self, imap_server, username, password, ssl_mode=MODE_STARTTLS):
+    def __init__(self, imap_server, username, password, ssl_mode):
 
         self._mailbox = 'INBOX'
         context = imapclient.tls.create_default_context()
         context.check_hostname = False
         # don't verify the certificate if the certificate is broken
         context.verify_mode = ssl.CERT_NONE
-        if ssl_mode == self.MODE_NORMAL:
+        if ssl_mode == self.MODE_NO_SSL:
             self._imap = imapclient.IMAPClient(
                 imap_server, use_uid=True, port=143
             )
