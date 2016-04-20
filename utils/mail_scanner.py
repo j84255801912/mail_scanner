@@ -141,7 +141,7 @@ class MailScanner(object):
                      'Hex String','Base64 String', 'Dridex String',
                      'VBA obfuscated Strings'
         ]
-        vba_suspicious_type = vba_types[:3]
+        vba_suspicious_type = vba_types
         vbaparser = VBA_Parser(filename, file_content)
 
         if not vbaparser.detect_vba_macros():
