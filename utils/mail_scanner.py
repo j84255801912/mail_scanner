@@ -17,6 +17,10 @@ from wrapped_imap import WrappedIMAP
 from formats import FileMessage
 from vt_api import VtAPIError, VtAPINoReport, vt_get_scan_report
 
+class ZipFileInvalid(Exception):
+
+    pass
+
 class MailScannerError(Exception):
 
     pass
@@ -147,12 +151,14 @@ class MailScanner(object):
         if not vbaparser.detect_vba_macros():
             return False
         results = vbaparser.analyze_macros()
+        result = False
+        message = ""
         for kw_type, keyword, description in results:
             if kw_type in vba_suspicious_type:
-                vbaparser.close()
-                return True
+                result |= True
+                message += "\t%s : %s : %s\n" % (kw_type, keyword, description)
         vbaparser.close()
-        return False
+        return result, message
 
     def check_vt_api(self, file_message):
 
@@ -162,27 +168,33 @@ class MailScanner(object):
             return detected, message
         except VtAPINoReport, e:
             ret = "Warning: virustotal API has no report; "
-            ret += "filename: {} ; ".format(file_message.get_filename())
-            ret += "Reason: {}".format(str(e))
+            ret += "filename: %s ; " % file_message.get_filename()
+            ret += "Reason: %s" % str(e)
             print ret
         except VtAPIError, e:
             ret = "Warning: virustotal API error; "
-            ret += "filename: {} ; ".format(file_message.get_filename())
-            ret += "Reason: {}".format(str(e))
+            ret += "filename: %s ; " %file_message.get_filename()
+            ret += "Reason: %s" % str(e)
             print ret
         return False, ""
 
     def check_regular_file(self, file_message):
 
         result = False
+        message = ""
         if file_message.is_ole():
-            result |= self.check_vba(file_message)
-        if self._enable_vt_api:
-            detected, message = self.check_vt_api(file_message)
+            detected, msg = self.check_vba(file_message)
             result |= detected
+            message += "[oletools vba check]\n"
+            message += msg
+        if self._enable_vt_api:
+            detected, msg = self.check_vt_api(file_message)
+            result |= detected
+            message += "[virustotal api]\n"
+            message += msg
         pass  # TODO : here can be multiple checks.
 
-        return result
+        return result, message
 
     def check_zip(self, file_message):
         """
@@ -196,6 +208,10 @@ class MailScanner(object):
         # These cases, f.read() == "", and f.get_filename() like "dir/dir/"
         # It makes checks works normally.
         result = False
+        message = ""
+
+        # XXX : workaround for demo
+        count = 0
         for i in the_zip.infolist():
             # skip directories
             if os.path.basename(i.filename) == '':
@@ -206,8 +222,17 @@ class MailScanner(object):
             else:
                 f = the_zip.open(i.filename)
             this_file = FileMessage(i.filename, f.read())
-            result |= self.check_file(this_file)
-        return result
+            # result |= self.check_file(this_file)
+            # XXX : workaround for demo
+            detected, msg = self.check_regular_file(this_file)
+            result |= detected
+            message += msg
+            count += 1
+            # XXX : workaround for demo
+            if count > 1:
+                raise ZipFileInvalid("Now we only support checks for zip which contains only one regular file.")
+
+        return result, message
 
     def check_file(self, file_message):
         """
@@ -228,10 +253,15 @@ class MailScanner(object):
 
         files = mail.get_attached_files()
         suspicious_files = []
+        message = ""
         for the_file in files:
-            if self.check_file(the_file):
+            detected, msg = self.check_file(the_file)
+            if detected:
+                message += "\n%s :\n" % the_file.get_filename()
+                message += msg
+                message += "\n"
                 suspicious_files.append(the_file.get_filename())
-        return suspicious_files
+        return suspicious_files, message
 
     def scan_all_mails(self):
 
@@ -241,12 +271,14 @@ class MailScanner(object):
         mail_uids = imap.search_mail_uids('ALL')
         mails = imap.peek_mails(mail_uids)
         for mail in mails:
-            suspicious_files = self.check_mail(mail)
+            suspicious_files, msg = self.check_mail(mail)
             if len(suspicious_files) != 0:
                 message = "[Suspicious Mail Found] "
                 message += "uid=%d; " % mail.get_uid()
                 message += "subject=\"%s\"; " % mail.get_subject()
                 message += "suspicious_files=\"%s\"" % ', '.join(suspicious_files)
+                message += "=" * 10 + "messages" + "=" * 10
+                message += msg
                 print message
                 contains_suspicious_mail = True
         print "\nDONE\n"
@@ -280,18 +312,30 @@ class MailScanner(object):
             for mail in new_mails:
                 now_time = time.gmtime()
                 # self.save_mail_attachments(mail, now_time)
-                suspicious_files = self.check_mail(mail)
-                result = (len(suspicious_files) != 0)
+                try:
+                    suspicious_files, msg = self.check_mail(mail)
+                    result = (len(suspicious_files) != 0)
 
-                message = time.strftime("%Y%m%d %H:%M:%S UTC ", now_time)
-                message += "[SUSPICIOUS MAIL] " if result else "[SAFE MAIL] "
-                message += "uid=%d; " % mail.get_uid()
-                message += "subject : " + "\"%s\"; " % mail.get_subject()
-                message += "from : \"%s\"; " % mail.get_sender()[1]
-                if result:
-                    message += "; suspicious_files : " + ', '.join(suspicious_files)
-                subject = "[SUSPICIOUS MAIL]" if result else "[SAFE MAIL]"
-                subject += " : " + mail.get_subject()
+                    message = "[SUSPICIOUS MAIL]\n" if result else "[SAFE MAIL]\n"
+                    message += time.strftime("Time : %Y%m%d %H:%M:%S UTC\n", now_time)
+    #                message += "uid=%d; " % mail.get_uid()
+                    message += "Subject : %s\n" % mail.get_subject()
+                    message += "From : %s\n" % mail.get_sender()[1]
+                    if result:
+                        message += "Suspicious files :" + ", ".join(suspicious_files)
+                        message += "\n"
+                        message += "=" * 30 + " Report " + "=" * 30 + "\n"
+                        message += msg
+                    subject = "[SUSPICIOUS MAIL]" if result else "[SAFE MAIL]"
+                    subject += " : " + mail.get_subject()
+                except ZipFileInvalid, e:
+                    message = "[MAIL NOT CHECKED]\n"
+                    message += time.strftime("Time : %Y%m%d %H:%M:%S UTC\n", now_time)
+                    message += "Reason : %s\n" % str(e)
+                    message += "Subject : %s\n" % mail.get_subject()
+                    message += "From : %s\n" % mail.get_sender()[1]
+                    subject = "[MAIL NOT CHECKED]"
+                    subject += " : " + mail.get_subject()
                 if self._enable_smtp:
                     self.reply(mail.get_sender()[1], subject, message)
                 with open('./mail.log', 'ab') as f:
