@@ -111,9 +111,9 @@ def vt_get_scan_report(file_message, api_key):
     # here we assume that ro['response_code'] == 1,
     # if not, the following code may fail.
     detected = False
-    message = "[Detected by virustotal api] "
+    message = "Detection rate : %d/%d\n" % (ro['positives'], ro['total'])
     for sw_name, report in ro['scans'].iteritems():
         if report['detected']:
-            message += ("%s: %s ; " % (sw_name, report['result']))
+            message += ("\t%s : %s\n" % (sw_name, report['result']))
         detected |= report['detected']
     return detected, message
