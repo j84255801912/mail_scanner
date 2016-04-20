@@ -146,13 +146,16 @@ class MailScanner(object):
 
         if not vbaparser.detect_vba_macros():
             return False
-        results = vbaparser.analyze_macros()
-        for kw_type, keyword, description in results:
+
+        result = False
+        message = ""
+        result_report = vbaparser.analyze_macros()
+        for kw_type, keyword, description in result_report:
             if kw_type in vba_suspicious_type:
-                vbaparser.close()
-                return True
+                result |= True
+                message += "{}:{},".format(keyword, kw_type)
         vbaparser.close()
-        return False
+        return result, message
 
     def check_vt_api(self, file_message):
 
@@ -175,14 +178,23 @@ class MailScanner(object):
     def check_regular_file(self, file_message):
 
         result = False
+        message = ""
         if file_message.is_ole():
-            result |= self.check_vba(file_message)
-        if self._enable_vt_api:
-            detected, message = self.check_vt_api(file_message)
+            detected, mes = self.check_vba(file_message)
             result |= detected
+            message += mes
+        if self._enable_vt_api:
+            detected, mes = self.check_vt_api(file_message)
+            result |= detected
+            message += mes
         pass  # TODO : here can be multiple checks.
 
-        return result
+        return {
+            'filename'  :   file_message.get_filename(),
+            'sub'       :   None,
+            'message'   :   message,
+            'detected'  :   result
+        }
 
     def check_zip(self, file_message):
         """
@@ -196,6 +208,7 @@ class MailScanner(object):
         # These cases, f.read() == "", and f.get_filename() like "dir/dir/"
         # It makes checks works normally.
         result = False
+        sub = []
         for i in the_zip.infolist():
             # skip directories
             if os.path.basename(i.filename) == '':
@@ -206,8 +219,15 @@ class MailScanner(object):
             else:
                 f = the_zip.open(i.filename)
             this_file = FileMessage(i.filename, f.read())
-            result |= self.check_file(this_file)
-        return result
+            o = self.check_file(this_file)
+            result |= o['detected']
+            sub.append(o)
+        return {
+            'filename'  :   file_message.get_filename(),
+            'sub'       :   sub,
+            'message'   :   None,
+            'detected'  :   result
+        }
 
     def check_file(self, file_message):
         """
@@ -229,7 +249,9 @@ class MailScanner(object):
         files = mail.get_attached_files()
         suspicious_files = []
         for the_file in files:
-            if self.check_file(the_file):
+            o = self.check_file(the_file)
+            print o
+            if o['detected']:
                 suspicious_files.append(the_file.get_filename())
         return suspicious_files
 

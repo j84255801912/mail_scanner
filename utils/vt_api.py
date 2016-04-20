@@ -117,3 +117,7 @@ def vt_get_scan_report(file_message, api_key):
             message += ("%s: %s ; " % (sw_name, report['result']))
         detected |= report['detected']
     return detected, message
+
+def main():
+
+    
