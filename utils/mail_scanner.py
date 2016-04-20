@@ -149,7 +149,9 @@ class MailScanner(object):
         results = vbaparser.analyze_macros()
         for kw_type, keyword, description in results:
             if kw_type in vba_suspicious_type:
+                vbaparser.close()
                 return True
+        vbaparser.close()
         return False
 
     def check_vt_api(self, file_message):
