@@ -195,7 +195,9 @@ class MailScanner(object):
         # In this for loop, some f will be dirs instead of regular files.
         # These cases, f.read() == "", and f.get_filename() like "dir/dir/"
         # It makes checks works normally.
+        result = False
         for i in the_zip.infolist():
+            # skip directories
             if os.path.basename(i.filename) == '':
                 continue
             encrypted = i.flag_bits & 0x01
@@ -204,9 +206,8 @@ class MailScanner(object):
             else:
                 f = the_zip.open(i.filename)
             this_file = FileMessage(i.filename, f.read())
-            if self.check_file(this_file):
-                return True
-        return False
+            result |= self.check_file(this_file)
+        return result
 
     def check_file(self, file_message):
         """
