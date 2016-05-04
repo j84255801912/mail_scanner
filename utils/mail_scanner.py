@@ -331,7 +331,8 @@ class MailScanner(object):
                 if self._enable_smtp:
                     self.reply(mail.get_sender()[1], subject, message)
                 with open('./mail.log', 'ab') as f:
-                    f.write(message + '\n')
+                    one_line_msg = message.replace('\n', '; ')
+                    f.write(one_line_msg + '\n')
             if len(new_mail_uids) != 0:
                 last_largest_mail_uid = new_mail_uids[-1]
             time.sleep(3)
