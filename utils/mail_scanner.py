@@ -210,8 +210,6 @@ class MailScanner(object):
         result = False
         message = ""
 
-        # XXX : workaround for demo
-        count = 0
         for i in the_zip.infolist():
             # skip directories
             if os.path.basename(i.filename) == '':
@@ -222,15 +220,9 @@ class MailScanner(object):
             else:
                 f = the_zip.open(i.filename)
             this_file = FileMessage(i.filename, f.read())
-            # result |= self.check_file(this_file)
-            # XXX : workaround for demo
-            detected, msg = self.check_regular_file(this_file)
+            detected, msg = self.check_file(this_file)
             result |= detected
             message += msg
-            count += 1
-            # XXX : workaround for demo
-            if count > 1:
-                raise ZipFileInvalid("Now we only support checks for zip which contains only one regular file.")
 
         return result, message
 
