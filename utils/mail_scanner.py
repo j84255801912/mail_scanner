@@ -190,7 +190,7 @@ class MailScanner(object):
         if self._enable_vt_api:
             detected, msg = self.check_vt_api(file_message)
             result |= detected
-            message += "[virustotal api]\n"
+            message += "\n[virustotal api]\n"
             message += msg
         pass  # TODO : here can be multiple checks.
 
