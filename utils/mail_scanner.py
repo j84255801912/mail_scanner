@@ -12,6 +12,7 @@ import StringIO
 from email.header import Header, decode_header
 from email.mime.text import MIMEText
 from oletools.olevba import VBA_Parser, TYPE_OLE, TYPE_OpenXML, TYPE_Word2003_XML, TYPE_MHTML
+from Queue import Queue
 
 from wrapped_imap import WrappedIMAP
 from formats import FileMessage
@@ -96,6 +97,10 @@ class MailScanner(object):
             message = "WARNING : virustotal api is disabled. "
             message += "Some checks may be ignored."
             print message
+        else:
+            self._vt_api_keys_queue = Queue()
+            for i in self._vt_api_keys:
+                self._vt_api_keys_queue.put(i)
 
     def send_msg(self, msg, starttls=False):
         """
@@ -162,21 +167,33 @@ class MailScanner(object):
 
     def check_vt_api(self, file_message):
 
-        api_key = self._vt_api_keys[0]
-        try:
-            detected, message = vt_get_scan_report(file_message, api_key)
-            return detected, message
-        except VtAPINoReport, e:
-            ret = "Warning: virustotal API has no report; "
-            ret += "filename: %s ; " % file_message.get_filename()
-            ret += "Reason: %s" % str(e)
-            print ret
-        except VtAPIError, e:
-            ret = "Warning: virustotal API error; "
-            ret += "filename: %s ; " %file_message.get_filename()
-            ret += "Reason: %s" % str(e)
-            print ret
-        return False, ""
+        q = self._vt_api_keys_queue
+        api_key = q.queue[0]
+        while True:
+            try:
+                detected, message = vt_get_scan_report(file_message, api_key)
+                q.get() # deque
+                q.put(api_key) # and enqueue
+                return detected, message
+            except VtAPINoReport, e:
+                ret = "Warning: virustotal API has no report; "
+                ret += "filename: %s ; " % file_message.get_filename()
+                ret += "Reason: %s" % str(e)
+                print ret
+                return False, ""
+            except VtAPIForbidden, e:
+                ret = "Warning: virustotal API FORBIDEEN!; "
+                ret += "filename: %s ; " %file_message.get_filename()
+                ret += "Reason: %s" % str(e)
+                print ret
+                return False, ""
+            except VtAPIExceedLimit, e:
+                ret = "Warning: virustotal API exceed limit, "
+                ret += "wait for some time and retry; "
+                ret += "filename: %s ; " %file_message.get_filename()
+                ret += "Reason: %s" % str(e)
+                print ret
+            time.sleep(5)
 
     def check_regular_file(self, file_message):
 

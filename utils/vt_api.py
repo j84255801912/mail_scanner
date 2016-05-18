@@ -15,6 +15,14 @@ class VtAPINoReport(Exception):
 
     pass
 
+class VtAPIExceedLimit(Exception):
+
+    pass
+
+class VtAPIForbidden(Exception):
+
+    pass
+
 
 def post_file(file_message, api_key):
     """
@@ -53,7 +61,10 @@ def post_file(file_message, api_key):
         message = "HTTP request failed : "
         message += "\tstatus_code : %d\n" % r.status_code
         message += "\tmessage : %s\n" % r.text
-        raise VtAPIError(message)
+        if r.status_code == 403:
+            raise VtAPIForbidden(message)
+        elif r.status_code == 204:
+            raise VtAPIExceedLimit(message)
     ro = json.loads(r.text)
     # ro has keys : permalink, sha1, resource, response_code, scan_id,
     #               verbose_msg, sha256, md5
@@ -103,7 +114,10 @@ def vt_get_scan_report(file_message, api_key):
         message = "HTTP request failed : "
         message += "\tstatus_code : %d\n" % r.status_code
         message += "\tmessage : %s\n" % r.text
-        raise VtAPIError(message)
+        if r.status_code == 403:
+            raise VtAPIForbidden(message)
+        elif r.status_code == 204:
+            raise VtAPIExceedLimit(message)
     ro = json.loads(r.text)
     if ro['response_code'] == 0:
         message = "No report about this file found\n"
