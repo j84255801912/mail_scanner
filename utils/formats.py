@@ -2,6 +2,7 @@
 # -*- coding : utf-8 -*-
 
 import email
+import rarfile
 import zipfile
 
 import StringIO
@@ -103,7 +104,7 @@ class FileMessage(object):
 
     def is_rar(self):
 
-        return False
+        return rarfile.is_rarfile(self._file_object)
 
     def is_ole(self):
         """

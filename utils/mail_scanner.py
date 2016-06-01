@@ -2,6 +2,7 @@
 # -*- coding : utf-8 -*-
 
 import os
+import rarfile
 import smtplib
 import time
 import zipfile
@@ -168,12 +169,13 @@ class MailScanner(object):
     def check_vt_api(self, file_message):
 
         q = self._vt_api_keys_queue
-        api_key = q.queue[0]
         while True:
+            api_key = q.queue[0]
             try:
                 detected, message = vt_get_scan_report(file_message, api_key)
                 q.get() # deque
                 q.put(api_key) # and enqueue
+                print "used_key : %s" % api_key
                 return detected, message
             except VtAPINoReport, e:
                 ret = "Warning: virustotal API has no report; "
@@ -183,14 +185,14 @@ class MailScanner(object):
                 return False, ""
             except VtAPIForbidden, e:
                 ret = "Warning: virustotal API FORBIDEEN!; "
-                ret += "filename: %s ; " %file_message.get_filename()
+                ret += "filename: %s ; " % file_message.get_filename()
                 ret += "Reason: %s" % str(e)
                 print ret
                 return False, ""
             except VtAPIExceedLimit, e:
                 ret = "Warning: virustotal API exceed limit, "
                 ret += "wait for some time and retry; "
-                ret += "filename: %s ; " %file_message.get_filename()
+                ret += "filename: %s ; " % file_message.get_filename()
                 ret += "Reason: %s" % str(e)
                 print ret
             time.sleep(5)
@@ -210,6 +212,33 @@ class MailScanner(object):
             message += "\n[virustotal api]\n"
             message += msg
         pass  # TODO : here can be multiple checks.
+
+        return result, message
+
+    def check_rar(self, file_message):
+        """
+            return if this zip is suspicious
+        """
+
+        # this supports recursively unzip
+        the_rar = rarfile.RarFile(file_message.get_file_object())
+
+        result = False
+        message = ""
+
+        for i in the_rar.infolist():
+            # skip directories
+            if i.isdir():
+                continue
+            encrypted = i.needs_password()
+            if encrypted:
+                f = the_rar.open(i.filename, psw='123')
+            else:
+                f = the_rar.open(i.filename)
+            this_file = FileMessage(i.filename, f.read())
+            detected, msg = self.check_file(this_file)
+            result |= detected
+            message += msg
 
         return result, message
 
@@ -250,6 +279,8 @@ class MailScanner(object):
 
         if file_message.is_zip():
             return self.check_zip(file_message)
+        if file_message.is_rar():
+            return self.check_rar(file_message)
 
         pass # TODO : do other extractions like rar, ...
 
